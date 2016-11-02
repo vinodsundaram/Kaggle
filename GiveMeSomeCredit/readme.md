@@ -1,5 +1,6 @@
 ### Objective - problem statement
-Credit scoring algorithm. The prhttps://www.kaggle.com/c/GiveMeSomeCredit/oblems attempts to find the probability that someone will experience distress in two years.
+Credit scoring algorithm. The problems attempts to find the probability that someone will experience distress in two years.
+https://www.kaggle.com/c/GiveMeSomeCredit/
 
 Data Features | Description | Format
 --------------|-------------|---
