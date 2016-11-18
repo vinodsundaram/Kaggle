@@ -1,0 +1,162 @@
+---
+title: "XGBOOST implementation of Kagggle problem - GiveMeSomeCredit"
+author: "Vinod"
+date: "November 10, 2016"
+output: 
+  html_document:
+    theme : spacelab
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Library load
+```{r}
+library("xgboost")
+library("caret")
+```
+
+## Training dataset from python notebook
+```{r}
+setwd("C:/Users/Vinod/Documents/Python Scripts/GiveMeSomeCredit/")
+xtrain<-read.csv("xtrain.csv",header = T)
+ytrain<-read.csv("ytrain.csv",header = F)
+xtrain<-xtrain[,-1]
+ytrain<-ytrain[,-1]
+
+```
+## Validation set
+```{r}
+xvalid = read.csv("xvalid.csv",header = T)
+yvalid = read.csv("yvalid.csv",header = F)
+xvalid<-xvalid[,-1]
+yvalid<-yvalid[,-1]
+```
+
+## Kaggle set
+```{r}
+oxtest<- read.csv("oxtest.csv",header = T)
+oxtest <- oxtest[,-c(1,11,12)]
+```
+
+```{r}
+## Accuracy calculation
+accuracy_roc_plot<- function(model, xtrain, ytrain, xtest, ytest){
+  pred<- predict(model, as.matrix(xtest))
+  err <- mean(as.numeric(pred > 0.5) != ytest)
+#  print(paste("best AUC:",model$bestScore," and test-error=", err))
+   print(paste("test-error=", err))
+  
+}
+```
+The different **parameters** in XGboost are **objective (regression or classification**, **max.depth (depth of the tree)**, **eta (Step size of the boosting)**, **evaluation metrics**. We try to tune some of the parameters
+
+```{r}
+grid.params <- list(
+  objective = "binary:logistic",
+  max.depth=5,
+  eta=0.015,
+  eval_metric="auc"
+)
+
+```
+
+## Plain vanilla gbm
+```{r}
+mod <- xgboost(data=as.matrix(xtrain), label=ytrain,
+                 nrounds = 5,objective = "binary:logistic",
+                 params = grid.params)
+accuracy_roc_plot(mod,xtrain,ytrain,xvalid,yvalid) 
+```
+The plain vannila gbm gives and accuracy of 93.4%
+-----
+
+
+## Tuning for different rounds of iterations
+```{r cache=TRUE}
+#nr = c(2,5,10,15,20,50,100,500,1000)
+mod <- xgboost(data=as.matrix(xtrain), label=ytrain,
+                 nrounds = 1000,
+                 objective = "binary:logistic",
+                 params = grid.params,
+#                early.stop.round = 20, 
+                 verbose = F)
+accuracy_roc_plot(mod,xtrain,ytrain,xvalid,yvalid) 
+
+feat_col<- colnames(xtrain)
+xgb.importance(feat_col, model=mod)
+xgb.plot.importance(xgb.importance(feat_col,model=mod))
+```
+
+## Now looking at cross validation 
+```{r}
+grid.params <- list(
+  objective = "binary:logistic",
+  booster = "gbtree",
+  max.depth=5, # 5, 10, 20
+  eta=0.01, # 0.05, 0.001 1 0.5 0.015 0.02 0.1 .3
+  eval_metric="auc"
+)
+
+
+cv_xgb <- xgb.cv(data=as.matrix(xtrain), label=ytrain,
+               nrounds = 1000, ## 500, 1000,2000
+               params = grid.params,
+               nfold = 5, ##  K fold cross validation
+               stratified = TRUE, ## imbalanced dataset
+              #prediction = TRUE,
+              verbose=F
+              )
+
+#ggplot(cv_xgb, aes(x=1:1000,y=cv_xgb$train.auc.mean),color="Red")+geom_point() + xlab("Number of rounds")+ylab("AUC") +theme_bw()
+```
+The AUC plots for training and test datasets:
+
+
+```{r}
+plot(1:1000,cv_xgb$train.auc.mean,type="b",ylab="Training AUC", title="Training data vs Number of iterations")
+plot(1:1000,cv_xgb$test.auc.mean,type="b",ylab="Test AUC", title= "Test data vs Number of iterations")
+```
+
+**Best XGBoost Parameters**
+- ETA = 0.01
+- Number of iterations = 1000
+- Maximum dpeth of the trees = 5
+
+```{r}
+grid.params <- list(
+  objective = "binary:logistic",
+  booster = "gbtree",
+  max.depth=5, # 5, 10, 20
+  eta=0.01, # 0.05, 0.001 1 0.5 0.015 0.02 0.1 .3
+  eval_metric="auc"
+)
+
+xgb_best <- xgboost(data=as.matrix(xtrain), label=ytrain,
+                       nrounds = 1000,
+                       objective = "binary:logistic",
+                       params = grid.params,
+                       verbose=0,
+                       aval_metric="auc")
+```
+
+**Variable Importance plots**
+```{r}
+feat_col<- colnames(xtrain)
+xgb.importance(feat_col, model=xgb_best)
+xgb.plot.importance(xgb.importance(feat_col,model=xgb_best))
+```
+
+```{r}
+pred<- predict(xgb_best, as.matrix(xvalid))
+err <- mean(as.numeric(pred > 0.5) != yvalid)
+print(paste("test-error=", err)) ## 93% accuracy ~ base one
+
+pred<- predict(xgb_best, as.matrix(oxtest))
+names(pred)<-"Probability"
+#write.csv(pred,"xgbkaggle.csv")
+write.csv(pred,"xgbkagglecv.csv")
+
+```
